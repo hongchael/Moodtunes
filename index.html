@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MoodTunes</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+    body { background-color: #f4f4f4; color: #333; display: flex; flex-direction: column; align-items: center; padding: 2rem; }
+    .screen { display: none; flex-direction: column; align-items: center; justify-content: center; height: 90vh; width: 100%; max-width: 600px; text-align: center; background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); overflow-y: auto; }
+    .active { display: flex; }
+    h1 { font-size: 2.5rem; margin-bottom: 0.5rem; color: #1DB954; }
+    h2 { font-size: 1.2rem; margin-bottom: 1rem; color: #666; }
+    button { background-color: #1DB954; color: white; border: none; padding: 1rem 2rem; font-size: 1.1rem; border-radius: 8px; cursor: pointer; margin-top: 1rem; transition: background-color 0.2s ease; }
+    button:hover { background-color: #17a74a; }
+    #webcam-container { margin: 1rem 0; }
+    .song { margin: 1rem 0; padding: 1rem; background: #f0fdf4; border: 1px solid #1DB95433; border-radius: 8px; }
+    .song-title { font-size: 1.2rem; font-weight: bold; color: #222; }
+    .song-artist { color: #555; margin-bottom: 0.5rem; }
+    .spotify-button {
+      display: inline-block;
+      background-color: #1DB954;
+      color: white;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: bold;
+      transition: background-color 0.2s ease;
+    }
+    .spotify-button:hover {
+      background-color: #159b46;
+    }
+  </style>
+</head>
+<body>
+  <!-- Welcome Screen -->
+  <div id="welcomeScreen" class="screen active">
+    <h1>MoodTunes</h1>
+    <h2>A facial expression music recommender</h2>
+    <p>Let’s find your mood based song! 😊</p>
+    <button onclick="showScanner()">Start Scan</button>
+  </div>
+
+  <!-- Scanner Screen -->
+  <div id="scannerScreen" class="screen">
+    <h1>MoodTunes</h1>
+    <h2>Detecting your mood…</h2>
+    <div id="webcam-container"></div>
+    <div id="label-container"></div>
+    <button onclick="init()">Start Webcam</button>
+    <button onclick="showResult()">Get Song Recommendation</button>
+  </div>
+
+  <!-- Result Screen -->
+  <div id="resultScreen" class="screen">
+    <h1>MoodTunes</h1>
+    <h2>Results</h2>
+    <div id="resultText" style="margin-bottom: 1rem;"></div>
+    <div id="recommendations"></div>
+    <button onclick="location.reload()">Start Over</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+  <script>
+    const URL = "https://teachablemachine.withgoogle.com/models/bubkiCw0b/";
+    let model, webcam, labelContainer, maxPredictions;
+    let currentMood = "";
+    let moodProbabilities = [];
+
+    function showScanner() {
+      document.getElementById('welcomeScreen').classList.remove('active');
+      document.getElementById('scannerScreen').classList.add('active');
+    }
+
+    function showResult() {
+      document.getElementById('scannerScreen').classList.remove('active');
+      document.getElementById('resultScreen').classList.add('active');
+      const resultText = document.getElementById('resultText');
+      resultText.innerHTML = `<strong>Emotion Detected:</strong> ${currentMood} (${(moodProbabilities[0].probability * 100).toFixed(0)}%)`;
+
+      const moodMap = {
+        Happy: {
+          songs: [
+            { name: "Happy", artist: "Pharrell Williams", url: "https://open.spotify.com/playlist/37i9dQZF1EIgG2NEOhqsD7?si=ff1bda20022c49d6" }
+          ]
+        },
+        Sad: {
+          songs: [
+            { name: "Someone Like You", artist: "Adele", url: "https://open.spotify.com/playlist/37i9dQZF1EIg85EO6f7KwU?si=53daf20d63a64cf1" }
+          ]
+        },
+        Angry: {
+          songs: [
+            { name: "Lose Yourself", artist: "Eminem", url: "https://open.spotify.com/playlist/37i9dQZF1EIhuCNl2WSFYd?si=52d71a94913b413e" }
+          ]
+        },
+        Surprised: {
+          songs: [
+            { name: "Surprise Me", artist: "Various Artists", url: "https://open.spotify.com/playlist/4pYn2lU68IKZE9HCspID2v?si=76f437114073487f" }
+          ]
+        }
+      };
+
+      const recommendations = document.getElementById("recommendations");
+      recommendations.innerHTML = "";
+      const moodKey = currentMood.charAt(0).toUpperCase() + currentMood.slice(1).toLowerCase();
+      const mood = moodMap[moodKey] || {};
+      (mood.songs || []).forEach(song => {
+        const songDiv = document.createElement("div");
+        songDiv.className = "song";
+        songDiv.innerHTML = `
+          <div class="song-title">${song.name}</div>
+          <div class="song-artist">by ${song.artist}</div>
+          <a class="spotify-button" href="${song.url}" target="_blank">Listen on Spotify</a>
+        `;
+        recommendations.appendChild(songDiv);
+      });
+    }
+
+    async function init() {
+      const modelURL = URL + "model.json";
+      const metadataURL = URL + "metadata.json";
+
+      model = await tmImage.load(modelURL, metadataURL);
+      maxPredictions = model.getTotalClasses();
+
+      const flip = true;
+      webcam = new tmImage.Webcam(200, 200, flip);
+      await webcam.setup();
+      await webcam.play();
+      window.requestAnimationFrame(loop);
+
+      document.getElementById("webcam-container").appendChild(webcam.canvas);
+      labelContainer = document.getElementById("label-container");
+      labelContainer.innerHTML = "";
+      for (let i = 0; i < maxPredictions; i++) {
+        labelContainer.appendChild(document.createElement("div"));
+      }
+    }
+
+    async function loop() {
+      webcam.update();
+      await predict();
+      window.requestAnimationFrame(loop);
+    }
+
+    async function predict() {
+      const prediction = await model.predict(webcam.canvas);
+      prediction.sort((a, b) => b.probability - a.probability);
+      moodProbabilities = prediction;
+      currentMood = prediction[0].className;
+      for (let i = 0; i < maxPredictions; i++) {
+        const classPrediction = prediction[i].className + ": " + (prediction[i].probability * 100).toFixed(0) + "%";
+        labelContainer.childNodes[i].innerHTML = classPrediction;
+      }
+    }
+  </script>
+</body>
+</html>
